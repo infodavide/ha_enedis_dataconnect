@@ -1,0 +1,16 @@
+{
+  "domain": "ha_enedis_dataconnect",
+  "name": "Enedis sensor",
+  "documentation": "https://github.com/infodavide/ha_enedis_dataconnect/",
+  "issue_tracker": "https://github.com/infodavide/ha_enedis_dataconnect/issues",
+  "iot_class": "cloud_polling",
+  "config_flow": true,
+  "version": "1.0.0",
+  "requirements": [
+    "packaging>=20.8"
+  ],
+  "dependencies": [],
+  "codeowners": [
+    "@infodavide"
+  ]
+}

@@ -1,0 +1,4 @@
+remote:
+  name: remote on
+  description: Make a call to the dataconnect API of Enedis company.
+  target:

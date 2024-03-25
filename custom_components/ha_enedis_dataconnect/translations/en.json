@@ -1,0 +1,29 @@
+{
+  "title": "Enedis data-connect API",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Enedis data-connect API",
+        "data": {
+          "pdl": "PDL",
+          "client_id": "Identifier",
+          "client_secret": "Secret",
+          "scan_interval": "Scan interval in seconds",
+          "redirect_url": "Redirection URL"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the API, check your configuration",
+      "invalid_auth": "Your are not authorized to connect to the API",
+      "invalid_pdl": "The PDL is invalid",
+      "invalid_client_id": "The client identifier is not valid",
+      "invalid_client_secret": "The client secret is not valid",
+      "invalid_scan_interval": "Scan interval is invalid",
+      "unknown": "An unknown error occurred"
+    },
+    "abort": {
+      "already_configured": "The component is already configured"
+    }
+  }
+}

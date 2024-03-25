@@ -1,0 +1,29 @@
+{
+  "title": "Enedis data-connect API",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Enedis data-connect API",
+        "data": {
+          "pdl": "PDL",
+          "client_id": "Identifier",
+          "client_secret": "Secret",
+          "scan_interval": "Scan interval in seconds",
+          "redirect_url": "Redirection URL"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "invalid_pdl": "[%key:common::config_flow::error::invalid_pdl%]",
+      "invalid_client_id": "[%key:common::config_flow::error::invalid_client_id%]",
+      "invalid_client_secret": "[%key:common::config_flow::error::invalid_client_secret%]",
+      "invalid_scan_interval": "Scan interval is invalid",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+    }
+  }
+}
