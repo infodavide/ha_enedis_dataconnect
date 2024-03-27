@@ -4,12 +4,22 @@
     "step": {
       "user": {
         "title": "Enedis data-connect API",
+        "description": "Configuration used to fetch the data from the API",
         "data": {
           "pdl": "PDL",
           "client_id": "Identifier",
           "client_secret": "Secret",
-          "scan_interval": "Scan interval in seconds",
+          "peak_hour_cost": "Cost per hour",
+          "scan_interval": "Scan interval",
           "redirect_url": "Redirection URL"
+        },
+        "data_description": {
+          "pdl": "The PDL used to fetch de consumption",
+          "client_id": "The identifier used for authentication on the API",
+          "client_secret": "The secret used for authentication on the API",
+          "peak_hour_cost": "The cost per hour",
+          "scan_interval": "The scan interval in seconds",
+          "redirect_url": "The redirection URL"
         }
       }
     },
@@ -19,7 +29,9 @@
       "invalid_pdl": "[%key:common::config_flow::error::invalid_pdl%]",
       "invalid_client_id": "[%key:common::config_flow::error::invalid_client_id%]",
       "invalid_client_secret": "[%key:common::config_flow::error::invalid_client_secret%]",
+      "invalid_peak_hour_cost": "Cost per hour is invalid",
       "invalid_scan_interval": "Scan interval is invalid",
+      "invalid_redirect_url": "Redirect URL is invalid",
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "abort": {
