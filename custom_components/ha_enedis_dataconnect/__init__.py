@@ -4,10 +4,25 @@
 The initialisation of the custom component
 """
 import logging
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, Event, CALLBACK_TYPE
+from datetime import timedelta
 
-from .constants import CLIENT_ID_KEY, CLIENT_SECRET_KEY, COORDINATOR_KEY, DOMAIN, EVENT_UNLISTENER_KEY, PLATFORMS, REDIRECT_URI_KEY, UPDATE_ENEDIS_EVENT_TYPE, UPDATE_UNLISTENER_KEY, PDL_KEY, DEFAULT_REDIRECT_URI
+try:
+    from homeassistant.helpers.typing import ConfigType
+except ImportError:
+    class ConfigType:  # type: ignore[no-redef]
+        """
+        For testing
+        """
+        def __init__(self):
+            # nothing to do
+            pass
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, EVENT_HOMEASSISTANT_STOP
+from homeassistant.core import HomeAssistant, Event, CALLBACK_TYPE, CoreState
+from homeassistant.exceptions import ConfigEntryNotReady
+
+from .const import CLIENT_ID_KEY, CLIENT_SECRET_KEY, COORDINATOR_KEY, DOMAIN, EVENT_UNLISTENER_KEY, PLATFORMS, REDIRECT_URI_KEY, UPDATE_ENEDIS_EVENT_TYPE, UPDATE_UNLISTENER_KEY, PDL_KEY, DEFAULT_REDIRECT_URI, DEFAULT_SCAN_INTERVAL, DATA_HASS_CONFIG
 from .coordinators import EnedisDataUpdateCoordinator
 from .enedis_client import EnedisClient, InvalidClientId, InvalidClientSecret, InvalidPdl
 
@@ -15,8 +30,18 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry):
-    """Handle options update."""
+    """
+    Handle options update
+    """
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """
+    Set up the custom component
+    """
+    hass.data[DATA_HASS_CONFIG] = config
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -58,13 +83,46 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         redirect_uri = DEFAULT_REDIRECT_URI
     client: EnedisClient = EnedisClient(hass, pdl, client_id, client_secret, redirect_uri)
     coordinator: EnedisDataUpdateCoordinator = EnedisDataUpdateCoordinator(hass, entry, client)
+    await coordinator.async_setup()
 
     async def _async_event_listener(event: Event):
+        """
+        Listen to events
+        :param event: the event
+        """
+        if not event:
+            return
         _LOGGER.info("Event received: %s", event.data)
         if event.event_type == UPDATE_ENEDIS_EVENT_TYPE:
-            await coordinator.async_update_enedis_data()
+            await coordinator.async_update_data()
+
+    async def _async_scheduled_refresh(*_):
+        """
+        Activate the data update coordinator
+        """
+        if coordinator:
+            coordinator.update_interval = timedelta(seconds=DEFAULT_SCAN_INTERVAL)
+            await coordinator.async_refresh()
+
+    if hass.state == CoreState.running:
+        await _async_scheduled_refresh()
+        if not coordinator.last_update_success:
+            raise ConfigEntryNotReady
+    else:
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _async_scheduled_refresh)
+
+    async def _async_close(event: Event) -> None:
+        """
+        Listen to events
+        :param event: the event
+        """
+        if not event:
+            return
+        if client:
+            await client.close()
 
     _LOGGER.debug("Setting up the listeners...")
+    entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_close))
     # noinspection SpellCheckingInspection
     update_unlistener: CALLBACK_TYPE = entry.add_update_listener(_async_update_listener)
     # noinspection SpellCheckingInspection
@@ -89,5 +147,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("Unloading up the entry...")
     result: bool = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if result:
+        if COORDINATOR_KEY in hass.data[DOMAIN][entry.entry_id]:
+            coordinator: EnedisDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][COORDINATOR_KEY]
+            if coordinator:
+                client: EnedisClient = coordinator.get_client()
+                if client:
+                    await client.close()
+        hass.data[DOMAIN][entry.entry_id][UPDATE_UNLISTENER_KEY]()
+        hass.data[DOMAIN][entry.entry_id][EVENT_UNLISTENER_KEY]()
         hass.data[DOMAIN].pop(entry.entry_id)
+        if not hass.data[DOMAIN]:
+            hass.data.pop(DOMAIN)
     return result

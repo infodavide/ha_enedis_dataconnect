@@ -11,7 +11,7 @@ from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 import voluptuous as vol
 
-from .constants import DOMAIN, PDL_KEY, DEFAULT_PDL, CLIENT_ID_KEY, DEFAULT_CLIENT_ID, CLIENT_SECRET_KEY, DEFAULT_CLIENT_SECRET, REDIRECT_URI_KEY, DEFAULT_REDIRECT_URI, PEAK_HOUR_COST_KEY, DEFAULT_PEAK_HOUR_COST, SCAN_INTERVAL_KEY, DEFAULT_SCAN_INTERVAL, MIN_SCAN_INTERVAL, MAX_SCAN_INTERVAL
+from .const import DOMAIN, PDL_KEY, DEFAULT_PDL, CLIENT_ID_KEY, DEFAULT_CLIENT_ID, CLIENT_SECRET_KEY, DEFAULT_CLIENT_SECRET, REDIRECT_URI_KEY, DEFAULT_REDIRECT_URI, PEAK_HOUR_COST_KEY, DEFAULT_PEAK_HOUR_COST, SCAN_INTERVAL_KEY, DEFAULT_SCAN_INTERVAL, MIN_SCAN_INTERVAL, MAX_SCAN_INTERVAL, LOGGER
 from .enedis_client import EnedisClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -125,13 +125,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """
         The constructor
         """
+        self._logger = logging.getLogger(__class__.__name__)
+        for handler in LOGGER.handlers:
+            self._logger.addHandler(handler)
+            self._logger.setLevel(LOGGER.level)
+        self._logger.debug("Building a %s", __class__.__name__)
         self._fields: OrderedDict = ConfigFlow.initialize_fields()
 
     async def async_step_user(self, user_input=None):
         """
         Handle the initial step
         """
-        _LOGGER.debug("Configuring user step...")
+        self._logger.debug("Configuring user step...")
         errors = {}
         if user_input is not None:
             # noinspection PyBroadException
@@ -142,9 +147,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     if not access:
                         errors["base"] = "cannot_connect"
                     if len(errors) == 0:
+                        await self.async_set_unique_id(DOMAIN + '_' + info[PDL_KEY])
                         return self.async_create_entry(title='Enedis data-connect API', data=info)
             except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception")
+                self._logger.exception("Unexpected exception")
                 errors["base"] = "unknown"
         return self.async_show_form(step_id="user", data_schema=vol.Schema(self._fields), errors=errors)
 
@@ -152,7 +158,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """
         Add reconfigure step to allow to reconfigure a config entry
         """
-        _LOGGER.debug("Reconfiguring user step...")
+        self._logger.debug("Reconfiguring user step...")
         errors = {}
         if user_input is not None:
             # noinspection PyBroadException
@@ -165,6 +171,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     if len(errors) == 0:
                         return self.async_create_entry(title='Enedis data-connect API', data=info, options=info)
             except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception")
+                self._logger.exception("Unexpected exception")
                 errors["base"] = "unknown"
         return self.async_show_form(step_id="reconfigure", data_schema=vol.Schema(self._fields), errors=errors)
