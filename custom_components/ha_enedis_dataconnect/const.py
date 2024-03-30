@@ -17,7 +17,7 @@ DATE_FORMAT: str = '%Y-%m-%d'
 DATE_TIME_FORMAT: str = '%Y-%m-%d %H:%M'
 
 MANIFEST: dict[str, Any] = {}
-VERSION: str = '0.0.1'
+VERSION: str = '0.0.1-SNAPSHOT'
 GITHUB_URL: str = EMPTY_STRING
 ISSUE_URL: str = EMPTY_STRING
 DOMAIN: str = 'ha_enedis_dataconnect'

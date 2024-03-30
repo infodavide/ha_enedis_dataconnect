@@ -19,7 +19,7 @@ from .utils import Singleton
 
 _LOGGER = logging.getLogger(__name__)
 _DATE_FORMAT: str = '%Y-%m-%d'
-_DATE_TIME_FORMAT: str = '%Y-%m-%d %H:%M'
+_DATE_TIME_FORMAT: str = '%Y-%m-%d %H:%M:%S'
 _RETRIES_COUNT: int = 3
 
 TOKEN_TYPE_KEY: str = 'token_type'
@@ -199,22 +199,25 @@ class EnedisClient(metaclass=Singleton):
         """
         return Session()
 
-    def get_data(self, url: str, headers: dict[str, str] = None, params: dict[str, str] = None, data: dict[str, str] = None) -> dict[str, Any]:
+    def get_data(self, url: str, headers: dict[str, str] = None, params: dict[str, str] = None, data: dict[str, str] = None, auto_connect: bool = True) -> dict[str, Any]:
         """
         Retrieves the data
         :param url: the url
         :param headers: the headers
         :param params: the parameters
         :param data: the data
+        :param auto_connect: true to auto connect the client
         :return: the data of the response
         """
-        self._logger.debug("Retrieving data...")
+        self._logger.debug('Retrieving data using parameters: %s, headers: %s, data: %s, auto-connect: %s ', params, headers, data, auto_connect)
         self._request_count += 1
         # noinspection PyTypeChecker
         exception: Exception = None
         tries: int = 0
         with self._lock:
             while tries < _RETRIES_COUNT:
+                if auto_connect and not self.is_connected():
+                    self.connect()
                 req: Request = Request("GET", url, headers=self._get_headers(headers), params=params, data=data)
                 prepared_req = req.prepare()
                 self._log_request(prepared_req)
@@ -228,6 +231,7 @@ class EnedisClient(metaclass=Singleton):
                     resp = http_session.send(prepared_req)
                     self._log_response(resp)
                     if resp.status_code == 401:
+                        self._logger.warning("Token expired, trying to re-authenticate...")
                         self._token_data = None
                         self.connect()
                     elif resp.status_code == 200:
@@ -245,13 +249,14 @@ class EnedisClient(metaclass=Singleton):
         self._logger.exception("An error occurred while requesting the API")
         raise ApiRequestError(exception) from exception
 
-    def post_data_with_result(self, url: str, headers: dict[str, str] = None, params: dict[str, str] = None, data: dict[str, str] = None) -> dict[str, Any]:
+    def post_data_with_result(self, url: str, headers: dict[str, str] = None, params: dict[str, str] = None, data: dict[str, str] = None, auto_connect: bool = True) -> dict[str, Any]:
         """
         Send returning data
         :param url: the url
         :param headers: the headers
         :param params: the parameters
         :param data: the data
+        :param auto_connect: true to auto connect the client
         :return: the data of the response
         """
         req: Request = Request("POST", url, headers=self._get_headers(headers), params=params, data=data)
@@ -263,6 +268,8 @@ class EnedisClient(metaclass=Singleton):
         tries: int = 0
         with self._lock:
             while tries < _RETRIES_COUNT:
+                if auto_connect and not self.is_connected():
+                    self.connect()
                 http_session: Session = self._new_session()
                 http_session.verify = True
                 # noinspection PyTypeChecker
@@ -273,6 +280,7 @@ class EnedisClient(metaclass=Singleton):
                     resp = http_session.send(prepared_req)
                     self._log_response(resp)
                     if resp.status_code == 401:
+                        self._logger.warning("Token expired, trying to re-authenticate...")
                         self._token_data = None
                         self.connect()
                     elif resp.status_code == 200:
@@ -290,13 +298,14 @@ class EnedisClient(metaclass=Singleton):
         self._logger.exception("An error occurred while requesting the API")
         raise ApiRequestError(exception) from exception
 
-    def post_data_without_result(self, url: str, headers: dict[str, str], params: dict[str, str], data: dict[str, str]) -> None:
+    def post_data_without_result(self, url: str, headers: dict[str, str], params: dict[str, str], data: dict[str, str], auto_connect: bool = True) -> None:
         """
         Send without returning data
         :param url: the url
         :param headers: the headers
         :param params: the parameters
         :param data: the data
+        :param auto_connect: true to auto connect the client
         """
         req: Request = Request("POST", url, headers=self._get_headers(headers), params=params, data=data)
         prepared_req = req.prepare()
@@ -307,6 +316,8 @@ class EnedisClient(metaclass=Singleton):
         tries: int = 0
         with self._lock:
             while tries < _RETRIES_COUNT:
+                if auto_connect and not self.is_connected():
+                    self.connect()
                 http_session: Session = self._new_session()
                 http_session.verify = True
                 # noinspection PyTypeChecker
@@ -317,6 +328,7 @@ class EnedisClient(metaclass=Singleton):
                     resp = http_session.send(prepared_req)
                     self._log_response(resp)
                     if resp.status_code == 401:
+                        self._logger.warning("Token expired, trying to re-authenticate...")
                         self._token_data = None
                         self.connect()
                     elif resp.status_code == 200:
@@ -355,7 +367,7 @@ class EnedisClient(metaclass=Singleton):
         }
         # noinspection PyBroadException
         try:
-            self.post_data_without_result(ENDPOINT_TOKEN_URL + 'revoke', req_headers, req_params, req_data)
+            self.post_data_without_result(ENDPOINT_TOKEN_URL + 'revoke', req_headers, req_params, req_data, auto_connect = False)
         except Exception:  # pylint: disable=broad-except
             self._logger.exception("An error occurred while closing the client")
         self._token_data = None
@@ -373,13 +385,6 @@ class EnedisClient(metaclass=Singleton):
         :return: the identifier
         """
         return self._client_id
-
-    def get_hass(self) -> HomeAssistant:
-        """
-        Return the home assistant instance
-        :return: the home assistant instance
-        """
-        return self._hass
 
     def _get_client_secret(self) -> str | None:  # pylint: disable=unsupported-binary-operation
         """
@@ -439,7 +444,7 @@ class EnedisClient(metaclass=Singleton):
             'client_id': self._client_id,
             'client_secret': self._get_client_secret()
         }
-        self._token_data = self.post_data_with_result(ENDPOINT_TOKEN_URL + 'token', req_headers, req_params, req_data)
+        self._token_data = self.post_data_with_result(ENDPOINT_TOKEN_URL + 'token', req_headers, req_params, req_data, auto_connect = False)
         self._logger.debug("Token data is: %s", self._token_data)
 
 
@@ -473,6 +478,7 @@ class EnedisApiHelper:
         Reset the stored parameters and execution dates of the requests
         :param request_dates: true to reset the execution dates of the requests
         """
+        self._logger.warning("Resetting counters")
         if request_dates:
             self._max_daily_consumed_power_request_date: datetime = None
             self._daily_consumption_request_date: datetime = None
@@ -494,6 +500,7 @@ class EnedisApiHelper:
             raise ValueError('End date is not valid')
         if start_date > end_date:
             raise ValueError('End date must be greater than start date')
+        self._logger.debug('Retrieving maximum daily consumed power...')
         req_params = {
             _START_PARAM: start_date.strftime(_DATE_FORMAT),
             _END_PARAM: end_date.strftime(_DATE_FORMAT),
@@ -507,11 +514,12 @@ class EnedisApiHelper:
         if data and _METER_READING_KEY in data:
             meter_reading: dict[str, Any] = data[_METER_READING_KEY]
             if _INTERVAL_READING_KEY in meter_reading:
-                intervals: list[dict[str, Any]] = data[_INTERVAL_READING_KEY]
+                intervals: list[dict[str, Any]] = meter_reading[_INTERVAL_READING_KEY]
                 if intervals:
                     for interval in intervals:
                         if _DATE_KEY in interval and _VALUE_KEY in interval:
-                            result[datetime.strptime(interval[_DATE_KEY], _DATE_TIME_FORMAT)] = interval[_VALUE_KEY]
+                            result[datetime.strptime(interval[_DATE_KEY], _DATE_TIME_FORMAT)] = int(interval[_VALUE_KEY])
+        self._logger.debug('%s items retrieved', len(result))
         return result
 
     def get_daily_consumption(self, start_date: date, end_date: date) -> dict[date, int]:
@@ -527,7 +535,7 @@ class EnedisApiHelper:
             raise ValueError('End date is not valid')
         if start_date > end_date:
             raise ValueError('End date must be greater than start date')
-
+        self._logger.debug('Retrieving daily consumption...')
         req_params = {
             _START_PARAM: start_date.strftime(_DATE_FORMAT),
             _END_PARAM: end_date.strftime(_DATE_FORMAT),
@@ -541,11 +549,12 @@ class EnedisApiHelper:
         if data and _METER_READING_KEY in data:
             meter_reading: dict[str, Any] = data[_METER_READING_KEY]
             if _INTERVAL_READING_KEY in meter_reading:
-                intervals: list[dict[str, Any]] = data[_INTERVAL_READING_KEY]
+                intervals: list[dict[str, Any]] = meter_reading[_INTERVAL_READING_KEY]
                 if intervals:
                     for interval in intervals:
                         if _DATE_KEY in interval and _VALUE_KEY in interval:
-                            result[datetime.strptime(interval[_DATE_KEY], _DATE_FORMAT).date()] = interval[_VALUE_KEY]
+                            result[datetime.strptime(interval[_DATE_KEY], _DATE_FORMAT).date()] = int(interval[_VALUE_KEY])
+        self._logger.debug('%s items retrieved', len(result))
         return result
 
     def get_consumption_load_curve(self, start_date: date, end_date: date) -> dict[datetime, int]:
@@ -562,7 +571,7 @@ class EnedisApiHelper:
             raise ValueError('End date is not valid')
         if start_date > end_date:
             raise ValueError('End date must be greater than start date')
-
+        self._logger.debug('Retrieving consumption load curve...')
         req_params = {
             _START_PARAM: start_date.strftime(_DATE_FORMAT),
             _END_PARAM: end_date.strftime(_DATE_FORMAT),
@@ -570,15 +579,17 @@ class EnedisApiHelper:
         }
         # noinspection SpellCheckingInspection
         data: dict[str, Any] = self._client.get_data(f'{ENDPOINT_URL}/metering_data_clc/v5/consumption_load_curve', params=req_params)
+        self._logger.debug('%s items retrieved', len(data))
         self._consumption_load_curve_request_date = datetime.now()
         self._consumption_load_curve_request_end_date = end_date
         result: dict[datetime, int] = {}
         if data and _METER_READING_KEY in data:
             meter_reading: dict[str, Any] = data[_METER_READING_KEY]
             if _INTERVAL_READING_KEY in meter_reading:
-                intervals: list[dict[str, Any]] = data[_INTERVAL_READING_KEY]
+                intervals: list[dict[str, Any]] = meter_reading[_INTERVAL_READING_KEY]
                 if intervals:
                     for interval in intervals:
                         if _DATE_KEY in interval and _VALUE_KEY in interval:
-                            result[datetime.strptime(interval[_DATE_KEY], _DATE_FORMAT)] = interval[_VALUE_KEY]
+                            result[datetime.strptime(interval[_DATE_KEY], _DATE_TIME_FORMAT)] = int(interval[_VALUE_KEY])
+        self._logger.debug('%s items retrieved', len(result))
         return result
