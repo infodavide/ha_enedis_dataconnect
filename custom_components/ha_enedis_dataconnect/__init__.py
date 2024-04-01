@@ -5,6 +5,7 @@ The initialisation of the custom component
 """
 import logging
 from datetime import timedelta
+from enedis_data_connect.enedis_client import EnedisClient, InvalidClientId, InvalidClientSecret, InvalidPrm, DEFAULT_REDIRECT_URI
 
 try:
     from homeassistant.helpers.typing import ConfigType
@@ -22,9 +23,8 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, EVENT_HOMEASSISTANT
 from homeassistant.core import HomeAssistant, Event, CALLBACK_TYPE, CoreState
 from homeassistant.exceptions import ConfigEntryNotReady
 
-from .const import CLIENT_ID_KEY, CLIENT_SECRET_KEY, COORDINATOR_KEY, DOMAIN, EVENT_UNLISTENER_KEY, PLATFORMS, REDIRECT_URI_KEY, UPDATE_ENEDIS_EVENT_TYPE, UPDATE_UNLISTENER_KEY, PDL_KEY, DEFAULT_REDIRECT_URI, DEFAULT_SCAN_INTERVAL, DATA_HASS_CONFIG
+from .const import CLIENT_ID_KEY, CLIENT_SECRET_KEY, COORDINATOR_KEY, DOMAIN, EVENT_UNLISTENER_KEY, PLATFORMS, REDIRECT_URI_KEY, UPDATE_ENEDIS_EVENT_TYPE, UPDATE_UNLISTENER_KEY, CONSUMPTION_PRM_KEY, PRODUCTION_PRM_KEY, DEFAULT_SCAN_INTERVAL, DATA_HASS_CONFIG
 from .coordinators import EnedisDataUpdateCoordinator
-from .enedis_client import EnedisClient, InvalidClientId, InvalidClientSecret, InvalidPdl
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  # pylint: disable=too-complex
     """
     Set up the custom component from a config entry
     :param hass: the home assistant instance
@@ -69,19 +69,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         client_secret: str = entry.data[CLIENT_SECRET_KEY]
     else:
         raise InvalidClientSecret
-    if PDL_KEY in entry.options:
-        pdl: str = entry.options[PDL_KEY]
-    elif PDL_KEY in entry.data:
-        pdl: str = entry.data[PDL_KEY]
-    else:
-        raise InvalidPdl
+    # noinspection PyTypeChecker
+    consumption_prm: str = None
+    if CONSUMPTION_PRM_KEY in entry.options:
+        consumption_prm = entry.options[CONSUMPTION_PRM_KEY]
+    elif CONSUMPTION_PRM_KEY in entry.data:
+        consumption_prm = entry.data[CONSUMPTION_PRM_KEY]
+    # noinspection PyTypeChecker
+    production_prm: str = None
+    if PRODUCTION_PRM_KEY in entry.options:
+        production_prm = entry.options[PRODUCTION_PRM_KEY]
+    elif PRODUCTION_PRM_KEY in entry.data:
+        production_prm = entry.data[PRODUCTION_PRM_KEY]
+    if consumption_prm is None and production_prm is None:
+        raise InvalidPrm
     if REDIRECT_URI_KEY in entry.options:
         redirect_uri: str = entry.options[REDIRECT_URI_KEY]
     elif REDIRECT_URI_KEY in entry.data:
         redirect_uri: str = entry.data[REDIRECT_URI_KEY]
     else:
         redirect_uri = DEFAULT_REDIRECT_URI
-    client: EnedisClient = EnedisClient(hass, pdl, client_id, client_secret, redirect_uri)
+    client: EnedisClient = EnedisClient(consumption_prm, production_prm, client_id, client_secret, redirect_uri)
     coordinator: EnedisDataUpdateCoordinator = EnedisDataUpdateCoordinator(hass, entry, client)
     await coordinator.async_setup()
 

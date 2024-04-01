@@ -7,21 +7,23 @@ import logging
 import re
 from typing import Any
 from collections import OrderedDict
+
+from enedis_data_connect.enedis_client import EnedisClient, DEFAULT_REDIRECT_URI
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 import voluptuous as vol
 
-from .const import DOMAIN, PDL_KEY, DEFAULT_PDL, CLIENT_ID_KEY, DEFAULT_CLIENT_ID, CLIENT_SECRET_KEY, DEFAULT_CLIENT_SECRET, REDIRECT_URI_KEY, DEFAULT_REDIRECT_URI, PEAK_HOUR_COST_KEY, DEFAULT_PEAK_HOUR_COST, SCAN_INTERVAL_KEY, DEFAULT_SCAN_INTERVAL, MIN_SCAN_INTERVAL, MAX_SCAN_INTERVAL, LOGGER
-from .enedis_client import EnedisClient
+from .const import DOMAIN, CONSUMPTION_PRM_KEY, PRODUCTION_PRM_KEY, DEFAULT_CONSUMPTION_PRM, DEFAULT_PRODUCTION_PRM, CLIENT_ID_KEY, DEFAULT_CLIENT_ID, CLIENT_SECRET_KEY, DEFAULT_CLIENT_SECRET, REDIRECT_URI_KEY, PEAK_HOUR_COST_KEY, DEFAULT_PEAK_HOUR_COST, SCAN_INTERVAL_KEY, DEFAULT_SCAN_INTERVAL, MIN_SCAN_INTERVAL, MAX_SCAN_INTERVAL, LOGGER
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_validate_api_access(hass: HomeAssistant, pdl: str, client_id: str, client_secret: str, redirect_uri: str) -> bool:
+async def async_validate_api_access(hass: HomeAssistant, consumption_prm: str, production_prm: str, client_id: str, client_secret: str, redirect_uri: str) -> bool:
     """
     Validate the access to the API
     :param hass: the home assistant instance
-    :param pdl: the PDL
+    :param consumption_prm: the consumption PRM identifier
+    :param production_prm: the production PRM identifier
     :param client_id: the client identifier
     :param client_secret: the client secret
     :param redirect_uri: the redirect URI
@@ -32,7 +34,7 @@ async def async_validate_api_access(hass: HomeAssistant, pdl: str, client_id: st
     client: EnedisClient = None
     # noinspection PyBroadException
     try:
-        client = EnedisClient(hass, pdl, client_id, client_secret, redirect_uri)
+        client = EnedisClient(consumption_prm, production_prm, client_id, client_secret, redirect_uri)
         await hass.async_add_executor_job(client.connect)
         return True
     except Exception:  # pylint: disable=broad-except
@@ -53,11 +55,23 @@ async def async_validate_input(fields: OrderedDict, user_input: dict[str, Any], 
     """
     _LOGGER.debug("Validating the input...")
     result: dict[str, Any] = {}
-    if PDL_KEY not in user_input or not re.match("\\d{14}", user_input[PDL_KEY]):
-        errors[PDL_KEY] = "invalid_pdl"
-    else:
-        fields[vol.Required(PDL_KEY, default=user_input[PDL_KEY])] = fields[vol.Required(PDL_KEY)]
-        result[PDL_KEY] = user_input[PDL_KEY]
+    if CONSUMPTION_PRM_KEY in user_input and not re.match("\\d{14}", user_input[CONSUMPTION_PRM_KEY]):
+        errors[CONSUMPTION_PRM_KEY] = "invalid_prm"
+    elif CONSUMPTION_PRM_KEY in user_input:
+        fields[vol.Required(CONSUMPTION_PRM_KEY, default=user_input[CONSUMPTION_PRM_KEY])] = fields[vol.Required(CONSUMPTION_PRM_KEY)]
+        result[CONSUMPTION_PRM_KEY] = user_input[CONSUMPTION_PRM_KEY]
+    if PRODUCTION_PRM_KEY in user_input and not re.match("\\d{14}", user_input[PRODUCTION_PRM_KEY]):
+        errors[PRODUCTION_PRM_KEY] = "invalid_prm"
+    elif PRODUCTION_PRM_KEY in user_input:
+        fields[vol.Required(PRODUCTION_PRM_KEY, default=user_input[PRODUCTION_PRM_KEY])] = fields[vol.Required(PRODUCTION_PRM_KEY)]
+        result[PRODUCTION_PRM_KEY] = user_input[PRODUCTION_PRM_KEY]
+    if CONSUMPTION_PRM_KEY not in result and PRODUCTION_PRM_KEY not in result:
+        errors[CONSUMPTION_PRM_KEY] = "invalid_prm"
+        errors[PRODUCTION_PRM_KEY] = "invalid_prm"
+        if CONSUMPTION_PRM_KEY in user_input:
+            fields[vol.Required(CONSUMPTION_PRM_KEY, default=user_input[CONSUMPTION_PRM_KEY])] = fields[vol.Required(CONSUMPTION_PRM_KEY)]
+        if PRODUCTION_PRM_KEY in user_input:
+            fields[vol.Required(PRODUCTION_PRM_KEY, default=user_input[PRODUCTION_PRM_KEY])] = fields[vol.Required(PRODUCTION_PRM_KEY)]
     if CLIENT_ID_KEY not in user_input or len(user_input[CLIENT_ID_KEY]) < 1:
         errors[CLIENT_ID_KEY] = "invalid_client_id"
     else:
@@ -113,7 +127,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         :return: the fields
         """
         result: OrderedDict = OrderedDict()
-        result[vol.Required(PDL_KEY, default=DEFAULT_PDL)] = vol.All(str, vol.Length(min=14, max=14))
+        result[vol.Optional(CONSUMPTION_PRM_KEY, default=DEFAULT_CONSUMPTION_PRM)] = vol.All(str, vol.Length(min=14, max=14))
+        result[vol.Optional(PRODUCTION_PRM_KEY, default=DEFAULT_PRODUCTION_PRM)] = vol.All(str, vol.Length(min=14, max=14))
         result[vol.Required(CLIENT_ID_KEY, default=DEFAULT_CLIENT_ID)] = vol.All(str, vol.Length(min=5))
         result[vol.Required(CLIENT_SECRET_KEY, default=DEFAULT_CLIENT_SECRET)] = vol.All(str, vol.Length(min=5))
         result[vol.Optional(REDIRECT_URI_KEY, default=DEFAULT_REDIRECT_URI)] = vol.All(str, vol.Length(min=5))
@@ -143,11 +158,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 info: dict[str, Any] = await async_validate_input(self._fields, user_input, errors)
                 if len(errors) == 0:
-                    access: bool = await async_validate_api_access(self.hass, info[PDL_KEY], info[CLIENT_ID_KEY], info[CLIENT_SECRET_KEY], info[REDIRECT_URI_KEY])
+                    access: bool = await async_validate_api_access(self.hass, info[CONSUMPTION_PRM_KEY], info[PRODUCTION_PRM_KEY], info[CLIENT_ID_KEY], info[CLIENT_SECRET_KEY], info[REDIRECT_URI_KEY])
                     if not access:
                         errors["base"] = "cannot_connect"
                     if len(errors) == 0:
-                        await self.async_set_unique_id(DOMAIN + '_' + info[PDL_KEY])
+                        unique_id: str = DOMAIN
+                        if CONSUMPTION_PRM_KEY in info:
+                            unique_id += '_' + info[CONSUMPTION_PRM_KEY]
+                        if PRODUCTION_PRM_KEY in info:
+                            unique_id += '_' + info[PRODUCTION_PRM_KEY]
+                        await self.async_set_unique_id(unique_id)
                         return self.async_create_entry(title='Enedis data-connect API', data=info)
             except Exception:  # pylint: disable=broad-except
                 self._logger.exception("Unexpected exception")
@@ -165,7 +185,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 info: dict[str, Any] = await async_validate_input(self._fields, user_input, errors)
                 if len(errors) == 0:
-                    access: bool = await async_validate_api_access(self.hass, info[PDL_KEY], info[CLIENT_ID_KEY], info[CLIENT_SECRET_KEY], info[REDIRECT_URI_KEY])
+                    consumption_prm = None
+                    if CONSUMPTION_PRM_KEY in info:
+                        consumption_prm = info[CONSUMPTION_PRM_KEY]
+                    production_prm = None
+                    if PRODUCTION_PRM_KEY in info:
+                        production_prm = info[PRODUCTION_PRM_KEY]
+                    access: bool = await async_validate_api_access(self.hass, consumption_prm, production_prm, info[CLIENT_ID_KEY], info[CLIENT_SECRET_KEY], info[REDIRECT_URI_KEY])
                     if not access:
                         errors["base"] = "cannot_connect"
                     if len(errors) == 0:

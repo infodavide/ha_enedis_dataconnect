@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import timedelta, datetime, date
 from typing import Any
 
+from enedis_data_connect.enedis_client import EnedisApiHelper, EnedisClient
 from homeassistant.components.sensor import SensorStateClass, ATTR_LAST_RESET, SensorDeviceClass, ATTR_STATE_CLASS
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ATTRIBUTION, ATTR_DEVICE_CLASS, ATTR_UNIT_OF_MEASUREMENT
@@ -17,11 +18,11 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity
 from homeassistant.util import Throttle
 
-from custom_components.ha_enedis_dataconnect.const import DEFAULT_SCAN_INTERVAL, SCAN_INTERVAL_KEY, EnedisHistoryDetailsTypeEnum, EnedisDetailsPeriodEnum, ENTITY_DELAY_KEY, DOMAIN, ENTITY_UNIT_KEY, VERSION_KEY, VERSION, EnedisSensorTypeEnum, PDL_KEY, EMPTY_STRING, DATE_TIME_FORMAT, LOGGER
-from custom_components.ha_enedis_dataconnect.enedis_client import EnedisClient, EnedisApiHelper
+from custom_components.ha_enedis_dataconnect.const import DEFAULT_SCAN_INTERVAL, SCAN_INTERVAL_KEY, EnedisHistoryDetailsTypeEnum, EnedisDetailsPeriodEnum, ENTITY_DELAY_KEY, DOMAIN, ENTITY_UNIT_KEY, VERSION_KEY, VERSION, EnedisSensorTypeEnum, CONSUMPTION_PRM_KEY, PRODUCTION_PRM_KEY, EMPTY_STRING, DATE_TIME_FORMAT, LOGGER
 
 _LOGGER = logging.getLogger(__name__)
-PDL_ATTR: str = PDL_KEY
+CONSUMPTION_PRM_ATTR: str = CONSUMPTION_PRM_KEY
+PRODUCTION_PRM_ATTR: str = PRODUCTION_PRM_KEY
 LAST_UPDATE_ATTR: str = 'last_update'
 COUNTER_TYPE_ATTR: str = 'counter_type'
 LAST_CALL_ATTR: str = 'timeLastCall'
@@ -92,7 +93,7 @@ class EnedisDataUpdateCoordinator(DataUpdateCoordinator):
         Retrieve the latest data
         """
         _LOGGER.info("Retrieving latest data...")
-        self._client.update_data()
+        # TODO
         return True
 
     async def async_update_data(self, *_):
@@ -217,19 +218,6 @@ class AbstractCoordinatorEntity(CoordinatorEntity, RestoreEntity, ABC):  # pylin
         """
         return "mdi:package-variant-closed"
 
-    def get_pdl(self) -> str:
-        """
-        Return the PDL identifier
-        :return: the identifier
-        """
-        coordinator: EnedisDataUpdateCoordinator = self._coordinator
-        if coordinator:
-            client: EnedisClient = coordinator.get_client()
-            if client:
-                return client.get_pdl()
-        # noinspection PyTypeChecker
-        return None
-
     def get_version(self) -> str:
         """
         Return the version
@@ -280,13 +268,20 @@ class AbstractCoordinatorEntity(CoordinatorEntity, RestoreEntity, ABC):  # pylin
         self._state = "unavailable"
 
     @abstractmethod
+    def get_prm(self) -> str:
+        """
+        Return the PRM identifier
+        :return: the identifier
+        """
+
+    @abstractmethod
     def _update_state(self) -> None:
         """
         Update the state
         """
 
 
-class EnedisSensorCoordinatorEntity(AbstractCoordinatorEntity):
+class EnedisConsumptionSensorCoordinatorEntity(AbstractCoordinatorEntity):
     """
     The main coordinator
     """
@@ -297,7 +292,7 @@ class EnedisSensorCoordinatorEntity(AbstractCoordinatorEntity):
         Returns the unique identifier
         :return: the unique identifier
         """
-        return f"{DOMAIN}.{self.get_pdl()}"
+        return f"{DOMAIN}.{self.get_prm()}"
 
     @property
     def name(self):
@@ -305,13 +300,25 @@ class EnedisSensorCoordinatorEntity(AbstractCoordinatorEntity):
         Returns the name
         :return: the name
         """
-        return f"{DOMAIN}.{self.get_pdl()}"
+        return f"{DOMAIN}.{self.get_prm()}"
+
+    def get_prm(self) -> str:
+        """
+        Return the PRM identifier
+        :return: the identifier
+        """
+        result: str = ''
+        if self._coordinator:
+            client: EnedisClient = self._coordinator.get_client()
+            if client.get_consumption_prm():
+                result = client.get_consumption_prm()
+        return result
 
     def _update_state(self) -> None:
         """
         Update the sensors state
         """
-        self._logger.debug("Updating state of %s", self.get_pdl())
+        self._logger.debug("Updating state of %s", self.name)
         self._attributes = {
             ATTR_ATTRIBUTION: EMPTY_STRING
         }
@@ -321,7 +328,8 @@ class EnedisSensorCoordinatorEntity(AbstractCoordinatorEntity):
         attributes: dict[str, Any] = defaultdict(int)
         attributes[VERSION_KEY] = self._version
         attributes[COUNTER_TYPE_ATTR] = EnedisSensorTypeEnum.CONSUMPTION
-        attributes[PDL_ATTR] = self.get_pdl()
+        attributes[CONSUMPTION_PRM_ATTR] = self.get_prm()
+        attributes[PRODUCTION_PRM_ATTR] = self.get_prm()
         # yesterday consummate max power
 
         # TODO
@@ -355,7 +363,7 @@ class EnedisConsumedHistoryCoordinatorEntity(AbstractCoordinatorEntity):
         Returns the unique identifier
         :return: the unique identifier
         """
-        return f"{DOMAIN}.{self.get_pdl()}_history_{self._details_type}".lower()
+        return f"{DOMAIN}.{self.get_prm()}_history_{self._details_type}".lower()
 
     @property
     def name(self):
@@ -363,13 +371,25 @@ class EnedisConsumedHistoryCoordinatorEntity(AbstractCoordinatorEntity):
         Returns the name
         :return: the name
         """
-        return f"{DOMAIN}.{self.get_pdl()}_history_{self._details_type}".lower()
+        return f"{DOMAIN}.{self.get_prm()}_history_{self._details_type}".lower()
+
+    def get_prm(self) -> str:
+        """
+        Return the PRM identifier
+        :return: the identifier
+        """
+        result: str = ''
+        if self._coordinator:
+            client: EnedisClient = self._coordinator.get_client()
+            if client.get_consumption_prm():
+                result = client.get_consumption_prm()
+        return result
 
     def _update_state(self) -> None:
         """
         Update the sensors state
         """
-        self._logger.debug("Updating state of %s", self.get_pdl())
+        self._logger.debug("Updating state of %s", self.name)
         # data from yesterday are not always available
         today: date = date.today()
         now: datetime = datetime.now()
@@ -409,7 +429,7 @@ class EnedisConsumedEnergyDetailsCoordinatorEntity(AbstractCoordinatorEntity):
         Returns the unique identifier
         :return: the unique identifier
         """
-        return f"{DOMAIN}.{self.get_pdl()}_energy_{self._details_type}".lower()
+        return f"{DOMAIN}.{self.get_prm()}_energy_{self._details_type}".lower()
 
     @property
     def name(self):
@@ -417,13 +437,25 @@ class EnedisConsumedEnergyDetailsCoordinatorEntity(AbstractCoordinatorEntity):
         Returns the name
         :return: the name
         """
-        return f"{DOMAIN}.{self.get_pdl()}_energy_{self._details_type}".lower()
+        return f"{DOMAIN}.{self.get_prm()}_energy_{self._details_type}".lower()
+
+    def get_prm(self) -> str:
+        """
+        Return the PRM identifier
+        :return: the identifier
+        """
+        result: str = ''
+        if self._coordinator:
+            client: EnedisClient = self._coordinator.get_client()
+            if client.get_consumption_prm():
+                result = client.get_consumption_prm()
+        return result
 
     def _update_state(self) -> None:
         """
         Update the sensors state
         """
-        self._logger.debug("Updating state of %s", self.get_pdl())
+        self._logger.debug("Updating state of %s", self.name)
         today: date = date.today()
         now: datetime = datetime.now()
         state: str = UNAVAILABLE_STATE
@@ -464,7 +496,7 @@ class EnedisConsumedEnergyCostDetailsCoordinatorEntity(AbstractCoordinatorEntity
         Returns the unique identifier
         :return: the unique identifier
         """
-        return f"{DOMAIN}.{self.get_pdl()}_cost_details_{self._details_type}".lower()
+        return f"{DOMAIN}.{self.get_prm()}_cost_details_{self._details_type}".lower()
 
     @property
     def name(self):
@@ -472,13 +504,25 @@ class EnedisConsumedEnergyCostDetailsCoordinatorEntity(AbstractCoordinatorEntity
         Returns the name
         :return: the name
         """
-        return f"{DOMAIN}.{self.get_pdl()}_cost_details_{self._details_type}".lower()
+        return f"{DOMAIN}.{self.get_prm()}_cost_details_{self._details_type}".lower()
+
+    def get_prm(self) -> str:
+        """
+        Return the PRM identifier
+        :return: the identifier
+        """
+        result: str = ''
+        if self._coordinator:
+            client: EnedisClient = self._coordinator.get_client()
+            if client.get_consumption_prm():
+                result = client.get_consumption_prm()
+        return result
 
     def _update_state(self) -> None:
         """
         Update the sensors state
         """
-        self._logger.debug("Updating state of %s", self.get_pdl())
+        self._logger.debug("Updating state of %s", self.name)
         today: date = date.today()
         now: datetime = datetime.now()
         state: str = UNAVAILABLE_STATE
@@ -517,7 +561,7 @@ class EnedisConsumedDailyCostCoordinatorEntity(AbstractCoordinatorEntity):
         Returns the unique identifier
         :return: the unique identifier
         """
-        return f"{DOMAIN}.{self.get_pdl()}_cost_{self._days}"
+        return f"{DOMAIN}.{self.get_prm()}_cost_{self._days}"
 
     @property
     def name(self):
@@ -525,13 +569,25 @@ class EnedisConsumedDailyCostCoordinatorEntity(AbstractCoordinatorEntity):
         Returns the name
         :return: the name
         """
-        return f"{DOMAIN}.{self.get_pdl()}_cost_{self._days}"
+        return f"{DOMAIN}.{self.get_prm()}_cost_{self._days}"
+
+    def get_prm(self) -> str:
+        """
+        Return the PRM identifier
+        :return: the identifier
+        """
+        result: str = ''
+        if self._coordinator:
+            client: EnedisClient = self._coordinator.get_client()
+            if client.get_consumption_prm():
+                result = client.get_consumption_prm()
+        return result
 
     def _update_state(self) -> None:
         """
         Update the sensors state
         """
-        self._logger.debug("Updating state of %s", self.get_pdl())
+        self._logger.debug("Updating state of %s", self.name)
         today: date = date.today()
         now: datetime = datetime.now()
         state: str = UNAVAILABLE_STATE
@@ -558,7 +614,7 @@ class EnedisConsumedEnergyCoordinatorEntity(AbstractCoordinatorEntity):
         Returns the unique identifier
         :return: the unique identifier
         """
-        return f"{DOMAIN}.{self.get_pdl()}_{SensorDeviceClass.ENERGY}"
+        return f"{DOMAIN}.{self.get_prm()}_{SensorDeviceClass.ENERGY}"
 
     @property
     def name(self):
@@ -566,13 +622,25 @@ class EnedisConsumedEnergyCoordinatorEntity(AbstractCoordinatorEntity):
         Returns the name
         :return: the name
         """
-        return f"{DOMAIN}.{self.get_pdl()}_{SensorDeviceClass.ENERGY}"
+        return f"{DOMAIN}.{self.get_prm()}_{SensorDeviceClass.ENERGY}"
+
+    def get_prm(self) -> str:
+        """
+        Return the PRM identifier
+        :return: the identifier
+        """
+        result: str = ''
+        if self._coordinator:
+            client: EnedisClient = self._coordinator.get_client()
+            if client.get_consumption_prm():
+                result = client.get_consumption_prm()
+        return result
 
     def _update_state(self) -> None:
         """
         Update the sensors state
         """
-        self._logger.debug("Updating state of %s", self.get_pdl())
+        self._logger.debug("Updating state of %s", self.name)
         today: date = date.today()
         now: datetime = datetime.now()
         state: str = UNAVAILABLE_STATE
